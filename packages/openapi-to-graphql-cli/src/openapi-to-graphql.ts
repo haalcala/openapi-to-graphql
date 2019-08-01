@@ -9,6 +9,12 @@ import * as fs from 'fs'
 import * as yaml from 'js-yaml'
 import { printSchema } from 'graphql'
 
+import * as passport from 'passport'
+import { Strategy, ExtractJwt } from 'passport-jwt'
+import jwt from 'jsonwebtoken'
+
+const JWT_SECRET = process.env.JWT_SECRET || 'changeme'
+
 import { createGraphQlSchema } from 'openapi-to-graphql'
 
 const app = express()
@@ -51,6 +57,10 @@ program
   .option(
     '--no-viewer',
     'do not create GraphQL viewer objects for passing authentication credentials'
+  )
+  .option(
+    '-j, --tokenJSONPath <tokenJSONpath>',
+    "Enable JSON Web Token header passing. Ex: '$.headers.x-token'"
   )
 
   // Logging options
@@ -123,13 +133,13 @@ Promise.all(
 function readFile(path) {
   if (/json$/.test(path)) {
     return JSON.parse(fs.readFileSync(path, 'utf8'))
-
   } else if (/yaml$/.test(path) || /yml$/.test(path)) {
     return yaml.safeLoad(fs.readFileSync(path, 'utf8'))
-
   } else {
-    throw new Error(`Failed to parse JSON/YAML. Ensure file '${path}' has ` + 
-    `the correct extension (i.e. '.json', '.yaml', or '.yml).`)
+    throw new Error(
+      `Failed to parse JSON/YAML. Ensure file '${path}' has ` +
+        `the correct extension (i.e. '.json', '.yaml', or '.yml).`
+    )
   }
 }
 
@@ -192,6 +202,7 @@ function startGraphQLServer(oas, port) {
 
     // Authentication options
     viewer: program.viewer,
+    tokenJSONpath: program.tokenJSONPath,
 
     // Logging options
     provideErrorExtensions: program.extensions,
@@ -207,6 +218,37 @@ function startGraphQLServer(oas, port) {
         // Enable CORS
         if (program.cors) {
           app.use(cors())
+        }
+
+        if (program.tokenJSONPath) {
+          passport.initialize()
+
+          const params = {
+            secretOrKey: JWT_SECRET,
+            jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken()
+          }
+
+          const strategy = new Strategy(params, (payload, done) => {
+            return done(null, payload)
+          })
+
+          passport.use(strategy)
+        }
+
+        if (program.tokenJSONPath) {
+          app.use('/graphql', (req, res, next) => {
+            passport.authenticate(
+              'jwt',
+              { session: false },
+              (err, user, info) => {
+                if (user) {
+                  req.user = user
+                }
+
+                next()
+              }
+            )(req, res, next)
+          })
         }
 
         // Mounting graphql endpoint using the middleware express-graphql

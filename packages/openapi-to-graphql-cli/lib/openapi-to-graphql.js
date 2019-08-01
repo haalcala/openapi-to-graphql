@@ -9,6 +9,9 @@ const request = require("request");
 const fs = require("fs");
 const yaml = require("js-yaml");
 const graphql_1 = require("graphql");
+const passport = require("passport");
+const passport_jwt_1 = require("passport-jwt");
+const JWT_SECRET = process.env.JWT_SECRET || "changeme";
 const openapi_to_graphql_1 = require("openapi-to-graphql");
 const app = express();
 let program = require('commander');
@@ -28,6 +31,7 @@ program
     .option('-a, --addLimitArgument', 'add a limit argument on fields returning lists of objects/lists to control the data size')
     // Authentication options
     .option('--no-viewer', 'do not create GraphQL viewer objects for passing authentication credentials')
+    .option('-j, --tokenJSONPath <tokenJSONpath>', 'Enable JSON Web Token header passing. Ex: \'$.headers.x-token\'')
     // Logging options
     .option('--no-extensions', 'do not add extentions, containing information about failed REST calls, to the GraphQL errors objects')
     .option('--no-equivalentToMessages', 'do not append information about the underlying REST operations to the description of fields')
@@ -144,6 +148,7 @@ function startGraphQLServer(oas, port) {
         addLimitArgument: program.addLimitArgument,
         // Authentication options
         viewer: program.viewer,
+        tokenJSONpath: program.tokenJSONPath,
         // Logging options
         provideErrorExtensions: program.extensions,
         equivalentToMessages: program.equivalentToMessages
@@ -158,6 +163,27 @@ function startGraphQLServer(oas, port) {
             // Enable CORS
             if (program.cors) {
                 app.use(cors());
+            }
+            if (program.tokenJSONPath) {
+                passport.initialize();
+                const params = {
+                    secretOrKey: JWT_SECRET,
+                    jwtFromRequest: passport_jwt_1.ExtractJwt.fromAuthHeaderAsBearerToken()
+                };
+                const strategy = new passport_jwt_1.Strategy(params, (payload, done) => {
+                    return done(null, payload);
+                });
+                passport.use(strategy);
+            }
+            if (program.tokenJSONPath) {
+                app.use("/graphql", (req, res, next) => {
+                    passport.authenticate("jwt", { session: false }, (err, user, info) => {
+                        if (user) {
+                            req.user = user;
+                        }
+                        next();
+                    })(req, res, next);
+                });
             }
             // Mounting graphql endpoint using the middleware express-graphql
             app.use('/graphql', graphqlHTTP({
