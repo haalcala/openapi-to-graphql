@@ -36,7 +36,7 @@
       "*.js"
     ]
   },
-  "main": "lib/index.js",
+  "main": "lib/openapi-to-graphql-cli.js",
   "scripts": {
     "dev": "tsc -w",
     "build": "tsc"
